@@ -111,5 +111,5 @@ if st.button("Fetch Data"):
             st.error("No data found for this symbol.")
 
 # 🧠 AI Prediction Placeholder
-st.subheader("🔮 AI Movement Prediction (Coming Soon)")
+st.subheader("🔮 AI Movement Prediction ")
 st.info("AI analysis of large movements will be added here.")
