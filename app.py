@@ -88,7 +88,7 @@ def train_ai_model(df):
     df['Prediction'] = model.predict(X)
     return df, model, accuracy_score(y_test, model.predict(X_test))
 
-def plot_candlestick_chart(df):
+def plot_candlestick_chart(df, pred_df=None):
     fig = go.Figure(data=[
         go.Candlestick(
             x=df.index,
@@ -99,8 +99,19 @@ def plot_candlestick_chart(df):
             name='Candlesticks'
         )
     ])
+    if pred_df is not None:
+        fig.add_trace(go.Scatter(
+            x=pred_df.index,
+            y=pred_df['Close'],
+            mode='markers',
+            marker=dict(
+                color=['green' if p == 1 else 'red' for p in pred_df['Prediction']],
+                size=6
+            ),
+            name='AI Predictions'
+        ))
     fig.update_layout(
-        title='Candlestick Chart',
+        title='Candlestick Chart with AI Predictions',
         xaxis_title='Date',
         yaxis_title='Price',
         xaxis_rangeslider_visible=False
@@ -147,35 +158,35 @@ if st.button("Fetch Data"):
         if not data.empty:
             st.success("Data fetched successfully!")
 
-            st.plotly_chart(plot_candlestick_chart(data), use_container_width=True)
-            st.dataframe(data.tail(10))
-
-            pattern_df = detect_candle_patterns(data)
-            if not pattern_df.empty:
-                st.subheader("🔧 Candle Pattern Detection")
-                st.dataframe(pattern_df[["Datetime", "Open", "High", "Low", "Close", "CandlePattern"]].tail(10))
-            else:
-                st.info("No notable candle patterns detected.")
-
-            st.subheader("🔎 Detected Large Movements")
-            st.dataframe(detect_large_moves(data).tail(5))
-
-            st.subheader("📈 Volume Spike Alerts")
-            st.dataframe(detect_volume_spikes(data).tail(5))
-
-            st.subheader("🧠 AI Movement Prediction")
             enriched_data = engineer_features(data)
             if not enriched_data.empty:
                 pred_df, model, accuracy = train_ai_model(enriched_data)
-                st.success(f"Prediction Model Accuracy: {accuracy:.2f}")
-                st.dataframe(pred_df[['Close', 'Prediction']].tail(10))
-
                 recent_signal = int(pred_df.iloc[-1]['Prediction'])
                 recent_price = float(pred_df.iloc[-1]['Close'])
                 signal_text = "BUY" if recent_signal == 1 else "SELL"
                 st.info(f"AI Suggests: {signal_text} at ${recent_price:.2f}")
 
                 run_paper_trade(recent_signal, recent_price)
+                st.plotly_chart(plot_candlestick_chart(data, pred_df), use_container_width=True)
+                st.dataframe(data.tail(10))
+
+                st.subheader("🔧 Candle Pattern Detection")
+                pattern_df = detect_candle_patterns(data)
+                if not pattern_df.empty:
+                    st.dataframe(pattern_df[["Datetime", "Open", "High", "Low", "Close", "CandlePattern"]].tail(10))
+                else:
+                    st.info("No notable candle patterns detected.")
+
+                st.subheader("🔎 Detected Large Movements")
+                st.dataframe(detect_large_moves(data).tail(5))
+
+                st.subheader("📈 Volume Spike Alerts")
+                st.dataframe(detect_volume_spikes(data).tail(5))
+
+                st.subheader("🧠 AI Movement Prediction")
+                st.success(f"Prediction Model Accuracy: {accuracy:.2f}")
+                st.dataframe(pred_df[['Close', 'Prediction']].tail(10))
+
                 display_portfolio()
             else:
                 st.error("Not enough data to train the model.")
