@@ -7,6 +7,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import plotly.graph_objects as go
 
+# Session state to simulate portfolio
+if 'portfolio' not in st.session_state:
+    st.session_state.portfolio = {'cash': 10000.0, 'shares': 0, 'last_price': 0.0, 'history': []}
 
 def detect_candle_patterns(df):
     df = df.copy()
@@ -55,17 +58,14 @@ def detect_candle_patterns(df):
     pattern_df.reset_index(inplace=True)
     return pattern_df
 
-
 def detect_large_moves(df):
     df["Range"] = df["High"] - df["Low"]
     avg_range = df["Range"].mean()
     return df[df["Range"] > 3 * avg_range]
 
-
 def detect_volume_spikes(df):
     avg_volume = df["Volume"].mean()
     return df[df["Volume"] > 2.5 * avg_volume]
-
 
 def engineer_features(df):
     df = df.copy()
@@ -77,7 +77,6 @@ def engineer_features(df):
     df['Volume_Change'] = df['Volume'].pct_change()
     return df.dropna()
 
-
 def train_ai_model(df):
     features = ['MA_5', 'MA_10', 'Volatility', 'Volume_Change']
     X = df[features]
@@ -88,7 +87,6 @@ def train_ai_model(df):
     model.fit(X_train, y_train)
     df['Prediction'] = model.predict(X)
     return df, model, accuracy_score(y_test, model.predict(X_test))
-
 
 def plot_candlestick_chart(df):
     fig = go.Figure(data=[
@@ -109,6 +107,31 @@ def plot_candlestick_chart(df):
     )
     return fig
 
+def run_paper_trade(signal, price):
+    p = st.session_state.portfolio
+    if signal == 1 and p['cash'] >= price:  # Buy
+        shares_to_buy = int(p['cash'] // price)
+        p['shares'] += shares_to_buy
+        p['cash'] -= shares_to_buy * price
+        p['last_price'] = price
+        p['history'].append(f"BUY {shares_to_buy} @ ${price:.2f}")
+    elif signal == 0 and p['shares'] > 0:  # Sell
+        p['cash'] += p['shares'] * price
+        p['history'].append(f"SELL {p['shares']} @ ${price:.2f}")
+        p['shares'] = 0
+        p['last_price'] = price
+
+def display_portfolio():
+    p = st.session_state.portfolio
+    st.sidebar.subheader("📊 Portfolio Simulation")
+    st.sidebar.write(f"Cash: ${p['cash']:.2f}")
+    st.sidebar.write(f"Shares: {p['shares']}")
+    st.sidebar.write(f"Last Price: ${p['last_price']:.2f}")
+    st.sidebar.write(f"Portfolio Value: ${p['cash'] + p['shares'] * p['last_price']:.2f}")
+    if p['history']:
+        st.sidebar.write("Recent Trades:")
+        for entry in reversed(p['history'][-5:]):
+            st.sidebar.text(entry)
 
 st.set_page_config(page_title="Paper Trader", layout="wide")
 st.title("📊 Paper Trader Dashboard")
@@ -147,9 +170,13 @@ if st.button("Fetch Data"):
                 st.success(f"Prediction Model Accuracy: {accuracy:.2f}")
                 st.dataframe(pred_df[['Close', 'Prediction']].tail(10))
 
-                recent_signal = pred_df.iloc[-1]['Prediction']
+                recent_signal = int(pred_df.iloc[-1]['Prediction'])
+                recent_price = float(pred_df.iloc[-1]['Close'])
                 signal_text = "BUY" if recent_signal == 1 else "SELL"
-                st.info(f"AI Suggests: {signal_text} at ${pred_df.iloc[-1]['Close']:.2f}")
+                st.info(f"AI Suggests: {signal_text} at ${recent_price:.2f}")
+
+                run_paper_trade(recent_signal, recent_price)
+                display_portfolio()
             else:
                 st.error("Not enough data to train the model.")
         else:
