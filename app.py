@@ -64,8 +64,8 @@ def detect_volume_spikes(df):
     return spikes
 
 # UI Setup
-st.set_page_config(page_title="\ud83d\udcc8 Paper Trader", layout="wide")
-st.title("\ud83d\udcca Paper Trader Dashboard")
+st.set_page_config(page_title="Paper Trader", layout="wide")
+st.title("📊 Paper Trader Dashboard")
 
 symbol = st.text_input("Enter Stock Symbol", "AAPL")
 period = st.selectbox("Select Period", ["1d", "5d", "1mo", "3mo", "6mo", "1y"], index=2)
@@ -84,12 +84,12 @@ if st.button("Fetch Data"):
 
             pattern_df = detect_candle_patterns(data)
             if not pattern_df.empty:
-                st.subheader("\ud83d\udd27 Candle Pattern Detection")
+                st.subheader("🔧 Candle Pattern Detection")
                 st.dataframe(pattern_df[["Datetime", "Open", "High", "Low", "Close", "CandlePattern"]].tail(10))
             else:
                 st.info("No notable candle patterns detected.")
 
-            st.subheader("\ud83d\udd0e Detected Large Movements")
+            st.subheader("🔎 Detected Large Movements")
             large_moves = detect_large_moves(data)
             if not large_moves.empty:
                 st.warning(f"Found {len(large_moves)} large movement candles:")
@@ -97,7 +97,7 @@ if st.button("Fetch Data"):
             else:
                 st.info("No unusually large price movements found.")
 
-            st.subheader("\ud83d\udcc8 Volume Spike Alerts")
+            st.subheader("📈 Volume Spike Alerts")
             spikes = detect_volume_spikes(data)
             if not spikes.empty:
                 st.warning(f"Detected {len(spikes)} volume spikes:")
@@ -107,5 +107,5 @@ if st.button("Fetch Data"):
         else:
             st.error("No data found for this symbol.")
 
-st.subheader("\ud83d\udd2e AI Movement Prediction (Coming Soon)")
+st.subheader("🔮 AI Movement Prediction (Coming Soon)")
 st.info("AI analysis of large movements will be added here.")
