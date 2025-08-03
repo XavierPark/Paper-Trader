@@ -99,19 +99,31 @@ def plot_candlestick_chart(df, pred_df=None):
             name='Candlesticks'
         )
     ])
+
     if pred_df is not None:
+        buys = pred_df[pred_df['Prediction'] == 1]
+        sells = pred_df[pred_df['Prediction'] == 0]
+
         fig.add_trace(go.Scatter(
-            x=pred_df.index,
-            y=pred_df['Close'],
+            x=buys.index,
+            y=buys['Close'],
             mode='markers',
-            marker=dict(
-                color=['green' if p == 1 else 'red' for p in pred_df['Prediction']],
-                size=6
-            ),
-            name='AI Predictions'
+            marker=dict(symbol='arrow-up', color='green', size=10),
+            name='AI Buy',
+            hovertemplate='Buy @ %{y}<br>%{x}'
         ))
+        
+        fig.add_trace(go.Scatter(
+            x=sells.index,
+            y=sells['Close'],
+            mode='markers',
+            marker=dict(symbol='arrow-down', color='red', size=10),
+            name='AI Sell',
+            hovertemplate='Sell @ %{y}<br>%{x}'
+        ))
+
     fig.update_layout(
-        title='Candlestick Chart with AI Predictions',
+        title='Candlestick Chart with AI Trades',
         xaxis_title='Date',
         yaxis_title='Price',
         xaxis_rangeslider_visible=False
