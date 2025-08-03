@@ -1,19 +1,8 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import datetime
 import numpy as np
 
-st.set_page_config(page_title="📈 Paper Trader", layout="wide")
-st.title("📊 Paper Trader Dashboard")
-
-symbol = st.text_input("Enter Stock Symbol", "AAPL")
-period = st.selectbox("Select Period", ["1d", "5d", "1mo", "3mo", "6mo", "1y"], index=2)
-interval = st.selectbox("Select Interval", ["1m", "5m", "15m", "1h", "1d"], index=2)
-
-data = pd.DataFrame()
-
-# 🕯️ Pattern detection logic
 def detect_candle_patterns(df):
     df = df.copy()
     df['CandlePattern'] = None
@@ -27,13 +16,14 @@ def detect_candle_patterns(df):
         prev = df.iloc[i - 1]
         curr = df.iloc[i]
 
-        o1, h1, l1, c1 = prev['Open'], prev['High'], prev['Low'], prev['Close']
-        o2, h2, l2, c2 = curr['Open'], curr['High'], curr['Low'], curr['Close']
+        o1, h1, l1, c1 = float(prev['Open']), float(prev['High']), float(prev['Low']), float(prev['Close'])
+        o2, h2, l2, c2 = float(curr['Open']), float(curr['High']), float(curr['Low']), float(curr['Close'])
+
         body1 = abs(c1 - o1)
         body2 = abs(c2 - o2)
         range2 = h2 - l2
-        upper_wick = h2 - max(o2, c2)
-        lower_wick = min(o2, c2) - l2
+        upper_wick = h2 - max(float(o2), float(c2))
+        lower_wick = min(float(o2), float(c2)) - l2
 
         pattern = None
 
@@ -60,19 +50,29 @@ def detect_candle_patterns(df):
     pattern_df.reset_index(inplace=True)
     return pattern_df
 
-# 🔍 Large move/volume detection
+
 def detect_large_moves(df):
     df["Range"] = df["High"] - df["Low"]
     avg_range = df["Range"].mean()
     large_moves = df[df["Range"] > 3 * avg_range]
     return large_moves
 
+
 def detect_volume_spikes(df):
     avg_volume = df["Volume"].mean()
     spikes = df[df["Volume"] > 2.5 * avg_volume]
     return spikes
 
-# 📥 Main fetch trigger
+# UI Setup
+st.set_page_config(page_title="\ud83d\udcc8 Paper Trader", layout="wide")
+st.title("\ud83d\udcca Paper Trader Dashboard")
+
+symbol = st.text_input("Enter Stock Symbol", "AAPL")
+period = st.selectbox("Select Period", ["1d", "5d", "1mo", "3mo", "6mo", "1y"], index=2)
+interval = st.selectbox("Select Interval", ["1m", "5m", "15m", "1h", "1d"], index=2)
+
+data = pd.DataFrame()
+
 if st.button("Fetch Data"):
     with st.spinner("Downloading data..."):
         data = yf.download(symbol, period=period, interval=interval)
@@ -82,16 +82,14 @@ if st.button("Fetch Data"):
             st.line_chart(data["Close"])
             st.dataframe(data.tail(10))
 
-            # 🕯️ Detect candle patterns
             pattern_df = detect_candle_patterns(data)
             if not pattern_df.empty:
-                st.subheader("🕯️ Candle Pattern Detection")
+                st.subheader("\ud83d\udd27 Candle Pattern Detection")
                 st.dataframe(pattern_df[["Datetime", "Open", "High", "Low", "Close", "CandlePattern"]].tail(10))
             else:
                 st.info("No notable candle patterns detected.")
 
-            # 🔎 Detect large moves
-            st.subheader("🔎 Detected Large Movements")
+            st.subheader("\ud83d\udd0e Detected Large Movements")
             large_moves = detect_large_moves(data)
             if not large_moves.empty:
                 st.warning(f"Found {len(large_moves)} large movement candles:")
@@ -99,8 +97,7 @@ if st.button("Fetch Data"):
             else:
                 st.info("No unusually large price movements found.")
 
-            # 📈 Volume spikes
-            st.subheader("📈 Volume Spike Alerts")
+            st.subheader("\ud83d\udcc8 Volume Spike Alerts")
             spikes = detect_volume_spikes(data)
             if not spikes.empty:
                 st.warning(f"Detected {len(spikes)} volume spikes:")
@@ -110,6 +107,5 @@ if st.button("Fetch Data"):
         else:
             st.error("No data found for this symbol.")
 
-# 🧠 AI Prediction Placeholder
-st.subheader("🔮 AI Movement Prediction ")
+st.subheader("\ud83d\udd2e AI Movement Prediction (Coming Soon)")
 st.info("AI analysis of large movements will be added here.")
