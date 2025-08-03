@@ -2,6 +2,11 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+import plotly.graph_objects as go
+
 
 def detect_candle_patterns(df):
     df = df.copy()
@@ -54,16 +59,57 @@ def detect_candle_patterns(df):
 def detect_large_moves(df):
     df["Range"] = df["High"] - df["Low"]
     avg_range = df["Range"].mean()
-    large_moves = df[df["Range"] > 3 * avg_range]
-    return large_moves
+    return df[df["Range"] > 3 * avg_range]
 
 
 def detect_volume_spikes(df):
     avg_volume = df["Volume"].mean()
-    spikes = df[df["Volume"] > 2.5 * avg_volume]
-    return spikes
+    return df[df["Volume"] > 2.5 * avg_volume]
 
-# UI Setup
+
+def engineer_features(df):
+    df = df.copy()
+    df['Return'] = df['Close'].pct_change().shift(-1)
+    df['Target'] = (df['Return'] > 0).astype(int)
+    df['MA_5'] = df['Close'].rolling(5).mean()
+    df['MA_10'] = df['Close'].rolling(10).mean()
+    df['Volatility'] = df['Close'].rolling(5).std()
+    df['Volume_Change'] = df['Volume'].pct_change()
+    return df.dropna()
+
+
+def train_ai_model(df):
+    features = ['MA_5', 'MA_10', 'Volatility', 'Volume_Change']
+    X = df[features]
+    y = df['Target']
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
+    df['Prediction'] = model.predict(X)
+    return df, model, accuracy_score(y_test, model.predict(X_test))
+
+
+def plot_candlestick_chart(df):
+    fig = go.Figure(data=[
+        go.Candlestick(
+            x=df.index,
+            open=df['Open'],
+            high=df['High'],
+            low=df['Low'],
+            close=df['Close'],
+            name='Candlesticks'
+        )
+    ])
+    fig.update_layout(
+        title='Candlestick Chart',
+        xaxis_title='Date',
+        yaxis_title='Price',
+        xaxis_rangeslider_visible=False
+    )
+    return fig
+
+
 st.set_page_config(page_title="Paper Trader", layout="wide")
 st.title("📊 Paper Trader Dashboard")
 
@@ -71,15 +117,14 @@ symbol = st.text_input("Enter Stock Symbol", "AAPL")
 period = st.selectbox("Select Period", ["1d", "5d", "1mo", "3mo", "6mo", "1y"], index=2)
 interval = st.selectbox("Select Interval", ["1m", "5m", "15m", "1h", "1d"], index=2)
 
-data = pd.DataFrame()
-
 if st.button("Fetch Data"):
     with st.spinner("Downloading data..."):
         data = yf.download(symbol, period=period, interval=interval)
 
         if not data.empty:
             st.success("Data fetched successfully!")
-            st.line_chart(data["Close"])
+
+            st.plotly_chart(plot_candlestick_chart(data), use_container_width=True)
             st.dataframe(data.tail(10))
 
             pattern_df = detect_candle_patterns(data)
@@ -90,22 +135,22 @@ if st.button("Fetch Data"):
                 st.info("No notable candle patterns detected.")
 
             st.subheader("🔎 Detected Large Movements")
-            large_moves = detect_large_moves(data)
-            if not large_moves.empty:
-                st.warning(f"Found {len(large_moves)} large movement candles:")
-                st.dataframe(large_moves.tail(5))
-            else:
-                st.info("No unusually large price movements found.")
+            st.dataframe(detect_large_moves(data).tail(5))
 
             st.subheader("📈 Volume Spike Alerts")
-            spikes = detect_volume_spikes(data)
-            if not spikes.empty:
-                st.warning(f"Detected {len(spikes)} volume spikes:")
-                st.dataframe(spikes.tail(5))
+            st.dataframe(detect_volume_spikes(data).tail(5))
+
+            st.subheader("🧠 AI Movement Prediction")
+            enriched_data = engineer_features(data)
+            if not enriched_data.empty:
+                pred_df, model, accuracy = train_ai_model(enriched_data)
+                st.success(f"Prediction Model Accuracy: {accuracy:.2f}")
+                st.dataframe(pred_df[['Close', 'Prediction']].tail(10))
+
+                recent_signal = pred_df.iloc[-1]['Prediction']
+                signal_text = "BUY" if recent_signal == 1 else "SELL"
+                st.info(f"AI Suggests: {signal_text} at ${pred_df.iloc[-1]['Close']:.2f}")
             else:
-                st.info("No significant volume spikes found.")
+                st.error("Not enough data to train the model.")
         else:
             st.error("No data found for this symbol.")
-
-st.subheader("🔮 AI Movement Prediction (Coming Soon)")
-st.info("AI analysis of large movements will be added here.")
