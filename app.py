@@ -6,10 +6,17 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import plotly.graph_objects as go
+from datetime import datetime
 
 # Session state to simulate portfolio
 if 'portfolio' not in st.session_state:
-    st.session_state.portfolio = {'cash': 10000.0, 'shares': 0, 'last_price': 0.0, 'history': []}
+    st.session_state.portfolio = {
+        'cash': 10000.0,
+        'shares': 0,
+        'last_price': 0.0,
+        'history': [],
+        'trade_log': []
+    }
 
 def detect_candle_patterns(df):
     df = df.copy()
@@ -112,7 +119,7 @@ def plot_candlestick_chart(df, pred_df=None):
             name='AI Buy',
             hovertemplate='Buy @ %{y}<br>%{x}'
         ))
-        
+
         fig.add_trace(go.Scatter(
             x=sells.index,
             y=sells['Close'],
@@ -132,15 +139,44 @@ def plot_candlestick_chart(df, pred_df=None):
 
 def run_paper_trade(signal, price):
     p = st.session_state.portfolio
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
     if signal == 1 and p['cash'] >= price:  # Buy
         shares_to_buy = int(p['cash'] // price)
+        total_cost = shares_to_buy * price
         p['shares'] += shares_to_buy
-        p['cash'] -= shares_to_buy * price
+        p['cash'] -= total_cost
         p['last_price'] = price
-        p['history'].append(f"BUY {shares_to_buy} @ ${price:.2f}")
+        portfolio_value = p['cash'] + p['shares'] * price
+        trade_msg = f"BUY {shares_to_buy} @ ${price:.2f}"
+        p['history'].append(trade_msg)
+        p['trade_log'].append({
+            'Datetime': now,
+            'Type': 'BUY',
+            'Shares': shares_to_buy,
+            'Price': price,
+            'Total Value': total_cost,
+            'Cash After': p['cash'],
+            'Portfolio Value After': portfolio_value,
+            'Signal': 'BUY'
+        })
+
     elif signal == 0 and p['shares'] > 0:  # Sell
-        p['cash'] += p['shares'] * price
-        p['history'].append(f"SELL {p['shares']} @ ${price:.2f}")
+        total_gain = p['shares'] * price
+        p['cash'] += total_gain
+        portfolio_value = p['cash']
+        trade_msg = f"SELL {p['shares']} @ ${price:.2f}"
+        p['history'].append(trade_msg)
+        p['trade_log'].append({
+            'Datetime': now,
+            'Type': 'SELL',
+            'Shares': p['shares'],
+            'Price': price,
+            'Total Value': total_gain,
+            'Cash After': p['cash'],
+            'Portfolio Value After': portfolio_value,
+            'Signal': 'SELL'
+        })
         p['shares'] = 0
         p['last_price'] = price
 
@@ -155,6 +191,9 @@ def display_portfolio():
         st.sidebar.write("Recent Trades:")
         for entry in reversed(p['history'][-5:]):
             st.sidebar.text(entry)
+    if p['trade_log']:
+        st.subheader("📜 Trade Log")
+        st.dataframe(pd.DataFrame(p['trade_log']))
 
 st.set_page_config(page_title="Paper Trader", layout="wide")
 st.title("📊 Paper Trader Dashboard")
