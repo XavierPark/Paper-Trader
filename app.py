@@ -140,8 +140,8 @@ def plot_candlestick_chart(df, pred_df=None):
 def run_paper_trade(signal, price):
     p = st.session_state.portfolio
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    if signal == 1 and p['cash'] >= price:  # Buy
+
+    if signal == 1 and p['cash'] >= price:
         shares_to_buy = int(p['cash'] // price)
         total_cost = shares_to_buy * price
         p['shares'] += shares_to_buy
@@ -161,7 +161,7 @@ def run_paper_trade(signal, price):
             'Signal': 'BUY'
         })
 
-    elif signal == 0 and p['shares'] > 0:  # Sell
+    elif signal == 0 and p['shares'] > 0:
         total_gain = p['shares'] * price
         p['cash'] += total_gain
         portfolio_value = p['cash']
@@ -182,18 +182,55 @@ def run_paper_trade(signal, price):
 
 def display_portfolio():
     p = st.session_state.portfolio
+    if 'trade_log' not in p:
+        p['trade_log'] = []
+
     st.sidebar.subheader("📊 Portfolio Simulation")
     st.sidebar.write(f"Cash: ${p['cash']:.2f}")
     st.sidebar.write(f"Shares: {p['shares']}")
     st.sidebar.write(f"Last Price: ${p['last_price']:.2f}")
-    st.sidebar.write(f"Portfolio Value: ${p['cash'] + p['shares'] * p['last_price']:.2f}")
+    portfolio_value = p['cash'] + p['shares'] * p['last_price']
+    st.sidebar.write(f"Portfolio Value: ${portfolio_value:.2f}")
+
     if p['history']:
         st.sidebar.write("Recent Trades:")
         for entry in reversed(p['history'][-5:]):
             st.sidebar.text(entry)
+
     if p['trade_log']:
         st.subheader("📜 Trade Log")
-        st.dataframe(pd.DataFrame(p['trade_log']))
+        trade_df = pd.DataFrame(p['trade_log'])
+        st.dataframe(trade_df)
+
+        profit = 0
+        win_trades = 0
+        total_sells = 0
+
+        for i, trade in enumerate(trade_df.itertuples()):
+            if trade.Type == 'SELL':
+                for j in range(i - 1, -1, -1):
+                    if trade_df.iloc[j]['Type'] == 'BUY':
+                        buy_price = trade_df.iloc[j]['Price']
+                        sell_price = trade.Price
+                        shares = trade_df.iloc[j]['Shares']
+                        pnl = (sell_price - buy_price) * shares
+                        profit += pnl
+                        if pnl > 0:
+                            win_trades += 1
+                        total_sells += 1
+                        break
+
+        win_rate = (win_trades / total_sells * 100) if total_sells > 0 else 0
+        unrealized = p['shares'] * p['last_price']
+
+        st.metric("💰 Realized Profit", f"${profit:.2f}")
+        st.metric("📈 Unrealized Value", f"${unrealized:.2f}")
+        st.metric("📊 Win Rate", f"{win_rate:.1f}%" if total_sells > 0 else "N/A")
+        st.metric("🧮 Total Trades", f"{len(trade_df)}")
+
+        if st.button("Download Trade Log as CSV"):
+            csv = trade_df.to_csv(index=False)
+            st.download_button("📥 Download CSV", csv, "trade_log.csv", "text/csv")
 
 st.set_page_config(page_title="Paper Trader", layout="wide")
 st.title("📊 Paper Trader Dashboard")
