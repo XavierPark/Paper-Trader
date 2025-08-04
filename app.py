@@ -41,8 +41,8 @@ def detect_candle_patterns(df):
         body1 = abs(c1 - o1)
         body2 = abs(c2 - o2)
         range2 = h2 - l2
-        upper_wick = h2 - max(float(o2), float(c2))
-        lower_wick = min(float(o2), float(c2)) - l2
+        upper_wick = h2 - max(o2, c2)
+        lower_wick = min(o2, c2) - l2
 
         pattern = None
 
@@ -122,7 +122,9 @@ def plot_candlestick_chart(df, pred_df=None, trade_log=None):
                 marker=dict(color=color, size=10),
                 name=row['Type'],
                 text=[f"{row['Type']}\n{row['Shares']} @ ${row['Price']:.2f}"],
-                textposition="top center"
+                textposition="top center",
+                hovertext=f"{row['Datetime']}<br>{row['Type']} {row['Shares']} @ ${row['Price']:.2f}<br>Portfolio After: ${row['Portfolio Value After']:.2f}",
+                hoverinfo="text"
             ))
 
     fig.update_layout(
@@ -190,3 +192,23 @@ def run_paper_trade(signal, price):
     p['returns'].append({'Datetime': now, 'Return': cumulative_return})
     date_key = now.split(" ")[0]
     p['daily_summary'][date_key] = p['daily_summary'].get(date_key, 0) + 1
+
+    # Display P/L and Daily Summary
+    st.subheader("💰 Profit & Loss Report")
+    st.metric("Unrealized P/L", f"${p['unrealized_pl']:.2f}")
+    st.metric("Realized P/L", f"${p['realized_pl']:.2f}")
+
+    st.subheader("📅 Daily Trade Summary")
+    summary_df = pd.DataFrame.from_dict(p['daily_summary'], orient='index', columns=["# of Trades"])
+    summary_df.index.name = "Date"
+    summary_df = summary_df.sort_index(ascending=False)
+    st.dataframe(summary_df)
+    st.bar_chart(summary_df)
+
+    # Interactive Cumulative Returns
+    st.subheader("📈 Cumulative Return Over Time")
+    return_df = pd.DataFrame(p['returns'])
+    if not return_df.empty:
+        return_df['Datetime'] = pd.to_datetime(return_df['Datetime'])
+        return_df.set_index('Datetime', inplace=True)
+        st.line_chart(return_df['Return'], use_container_width=True)
