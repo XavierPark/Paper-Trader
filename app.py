@@ -190,6 +190,7 @@ def run_paper_trade(signal, price):
     date_key = now.split(" ")[0]
     p['daily_summary'][date_key] = p['daily_summary'].get(date_key, 0) + 1
 
+    st.divider()
     st.subheader("💰 Profit & Loss Report")
     st.metric("Unrealized P/L", f"${p['unrealized_pl']:.2f}")
     st.metric("Realized P/L", f"${p['realized_pl']:.2f}")
@@ -210,27 +211,32 @@ def run_paper_trade(signal, price):
 
 def main():
     st.title("📈 Paper Trading AI Dashboard")
-    symbol = st.text_input("Enter Stock Symbol (e.g. AAPL)", "AAPL")
+    symbol = st.text_input("🔍 Enter Stock Symbol (e.g. AAPL)", "AAPL")
 
     if symbol:
         st.session_state['symbol'] = symbol
         data = yf.download(symbol, period="3mo", interval="1d")
         if not data.empty:
-            st.subheader(f"{symbol} Historical Data")
-            st.dataframe(data.tail())
-
             features_df = engineer_features(data)
             pred_df, model, accuracy = train_ai_model(features_df)
 
-            st.metric("Model Accuracy", f"{accuracy * 100:.2f}%")
-
             latest_price = float(data['Close'].iloc[-1])
             signal = int(pred_df['Prediction'].iloc[-1])
-            run_paper_trade(signal, latest_price)
+
+            st.subheader("🧠 Model Output")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Model Accuracy", f"{accuracy * 100:.2f}%")
+            col2.metric("Latest Price", f"${latest_price:.2f}")
+            col3.metric("AI Signal", "BUY" if signal == 1 else "SELL")
 
             candle_fig = plot_candlestick_chart(data, pred_df, st.session_state.portfolio['trade_log'])
+            st.subheader("📊 Candlestick Chart")
             st.plotly_chart(candle_fig, use_container_width=True)
 
+            run_paper_trade(signal, latest_price)
+
+            with st.expander("📄 View Raw Historical Data"):
+                st.dataframe(data.tail())
         else:
             st.error("No data found for that symbol.")
 
