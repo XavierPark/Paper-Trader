@@ -194,7 +194,7 @@ def run_paper_trade(signal, price):
     st.metric("Unrealized P/L", f"${p['unrealized_pl']:.2f}")
     st.metric("Realized P/L", f"${p['realized_pl']:.2f}")
 
-    st.subheader("🗕️ Daily Trade Summary")
+    st.subheader("🔕️ Daily Trade Summary")
     summary_df = pd.DataFrame.from_dict(p['daily_summary'], orient='index', columns=["# of Trades"])
     summary_df.index.name = "Date"
     summary_df = summary_df.sort_index(ascending=False)
@@ -225,7 +225,7 @@ def main():
             st.metric("Model Accuracy", f"{accuracy * 100:.2f}%")
 
             latest_price = data['Close'].iloc[-1]
-            signal = pred_df['Prediction'].iloc[-1]
+            signal = int(pred_df['Prediction'].iloc[-1])
             run_paper_trade(signal, latest_price)
 
             candle_fig = plot_candlestick_chart(data, pred_df, st.session_state.portfolio['trade_log'])
