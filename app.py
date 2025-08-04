@@ -182,10 +182,7 @@ def run_paper_trade(signal, price):
         p['shares'] = 0
         p['last_price'] = price
 
-    # Unrealized P/L
     p['unrealized_pl'] = p['shares'] * (price - p['last_price'])
-
-    # Track returns
     start_value = 10000.0
     curr_value = p['cash'] + p['shares'] * price
     cumulative_return = (curr_value - start_value) / start_value
@@ -193,22 +190,49 @@ def run_paper_trade(signal, price):
     date_key = now.split(" ")[0]
     p['daily_summary'][date_key] = p['daily_summary'].get(date_key, 0) + 1
 
-    # Display P/L and Daily Summary
     st.subheader("💰 Profit & Loss Report")
     st.metric("Unrealized P/L", f"${p['unrealized_pl']:.2f}")
     st.metric("Realized P/L", f"${p['realized_pl']:.2f}")
 
-    st.subheader("📅 Daily Trade Summary")
+    st.subheader("🗕️ Daily Trade Summary")
     summary_df = pd.DataFrame.from_dict(p['daily_summary'], orient='index', columns=["# of Trades"])
     summary_df.index.name = "Date"
     summary_df = summary_df.sort_index(ascending=False)
     st.dataframe(summary_df)
     st.bar_chart(summary_df)
 
-    # Interactive Cumulative Returns
     st.subheader("📈 Cumulative Return Over Time")
     return_df = pd.DataFrame(p['returns'])
     if not return_df.empty:
         return_df['Datetime'] = pd.to_datetime(return_df['Datetime'])
         return_df.set_index('Datetime', inplace=True)
         st.line_chart(return_df['Return'], use_container_width=True)
+
+def main():
+    st.title("📈 Paper Trading AI Dashboard")
+    symbol = st.text_input("Enter Stock Symbol (e.g. AAPL)", "AAPL")
+
+    if symbol:
+        st.session_state['symbol'] = symbol
+        data = yf.download(symbol, period="3mo", interval="1d")
+        if not data.empty:
+            st.subheader(f"{symbol} Historical Data")
+            st.dataframe(data.tail())
+
+            features_df = engineer_features(data)
+            pred_df, model, accuracy = train_ai_model(features_df)
+
+            st.metric("Model Accuracy", f"{accuracy * 100:.2f}%")
+
+            latest_price = data['Close'].iloc[-1]
+            signal = pred_df['Prediction'].iloc[-1]
+            run_paper_trade(signal, latest_price)
+
+            candle_fig = plot_candlestick_chart(data, pred_df, st.session_state.portfolio['trade_log'])
+            st.plotly_chart(candle_fig, use_container_width=True)
+
+        else:
+            st.error("No data found for that symbol.")
+
+if __name__ == "__main__":
+    main()
