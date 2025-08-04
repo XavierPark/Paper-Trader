@@ -224,7 +224,7 @@ def main():
 
             st.metric("Model Accuracy", f"{accuracy * 100:.2f}%")
 
-            latest_price = data['Close'].iloc[-1]
+            latest_price = float(data['Close'].iloc[-1])
             signal = int(pred_df['Prediction'].iloc[-1])
             run_paper_trade(signal, latest_price)
 
