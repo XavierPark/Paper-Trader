@@ -1,85 +1,244 @@
-# Stock App - Rebuild Based on Design Doc
-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from datetime import datetime
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
+import plotly.graph_objects as go
+from datetime import datetime
 
-# Initialize session state
-if 'trades' not in st.session_state:
-    st.session_state.trades = []
-if 'mode' not in st.session_state:
-    st.session_state.mode = 'Live'
+# Session state to simulate portfolio
+if 'portfolio' not in st.session_state:
+    st.session_state.portfolio = {
+        'cash': 10000.0,
+        'shares': 0,
+        'last_price': 0.0,
+        'history': [],
+        'trade_log': [],
+        'daily_summary': {},
+        'returns': [],
+        'realized_pl': 0.0,
+        'unrealized_pl': 0.0
+    }
 
-# Load data
-@st.cache_data
+def detect_candle_patterns(df):
+    df = df.copy()
+    df['CandlePattern'] = None
+    df['Doji'] = False
+    df['BullishEngulfing'] = False
+    df['BearishEngulfing'] = False
+    df['Hammer'] = False
+    df['ShootingStar'] = False
 
-def load_data(symbol, mode='Live'):
-    if mode == 'Live':
-        return yf.download(symbol, period="1mo", interval="1d")
-    elif mode == 'Replay':
-        return pd.read_csv("historical.csv")  # Placeholder path
-    else:
-        return pd.read_csv("static_snapshot.csv")
+    for i in range(1, len(df)):
+        prev = df.iloc[i - 1]
+        curr = df.iloc[i]
 
-# Feature engineering
+        o1, h1, l1, c1 = float(prev['Open']), float(prev['High']), float(prev['Low']), float(prev['Close'])
+        o2, h2, l2, c2 = float(curr['Open']), float(curr['High']), float(curr['Low']), float(curr['Close'])
+
+        body1 = abs(c1 - o1)
+        body2 = abs(c2 - o2)
+        range2 = h2 - l2
+        upper_wick = h2 - max(o2, c2)
+        lower_wick = min(o2, c2) - l2
+
+        pattern = None
+
+        if body2 < range2 * 0.1:
+            pattern = 'Doji'
+            df.at[i, 'Doji'] = True
+        elif (c1 < o1) and (c2 > o2) and (o2 < c1) and (c2 > o1):
+            pattern = 'BullishEngulfing'
+            df.at[i, 'BullishEngulfing'] = True
+        elif (c1 > o1) and (c2 < o2) and (o2 > c1) and (c2 < o1):
+            pattern = 'BearishEngulfing'
+            df.at[i, 'BearishEngulfing'] = True
+        elif body2 < range2 * 0.3 and lower_wick > body2 * 2:
+            pattern = 'Hammer'
+            df.at[i, 'Hammer'] = True
+        elif body2 < range2 * 0.3 and upper_wick > body2 * 2:
+            pattern = 'ShootingStar'
+            df.at[i, 'ShootingStar'] = True
+
+        if pattern:
+            df.at[i, 'CandlePattern'] = pattern
+
+    pattern_df = df[df['CandlePattern'].notnull()].copy()
+    pattern_df.reset_index(inplace=True)
+    return pattern_df
+
+def detect_large_moves(df):
+    df["Range"] = df["High"] - df["Low"]
+    avg_range = df["Range"].mean()
+    return df[df["Range"] > 3 * avg_range]
+
+def detect_volume_spikes(df):
+    avg_volume = df["Volume"].mean()
+    return df[df["Volume"] > 2.5 * avg_volume]
+
 def engineer_features(df):
+    df = df.copy()
+    df['Return'] = df['Close'].pct_change().shift(-1)
+    df['Target'] = (df['Return'] > 0).astype(int)
     df['MA_5'] = df['Close'].rolling(5).mean()
     df['MA_10'] = df['Close'].rolling(10).mean()
     df['Volatility'] = df['Close'].rolling(5).std()
-    df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
+    df['Volume_Change'] = df['Volume'].pct_change()
     return df.dropna()
 
-# Train model and generate predictions
-def ai_predict(df):
-    features = ['MA_5', 'MA_10', 'Volatility']
+def train_ai_model(df):
+    features = ['MA_5', 'MA_10', 'Volatility', 'Volume_Change']
     X = df[features]
     y = df['Target']
-    X_train, X_test, y_train, y_test = train_test_split(X, y, shuffle=False, test_size=0.2)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
 
-    model = RandomForestClassifier()
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
     model.fit(X_train, y_train)
     df['Prediction'] = model.predict(X)
-    df['Confidence'] = model.predict_proba(X)[:, 1]
-    accuracy = accuracy_score(y_test, model.predict(X_test))
-    return df, model, accuracy
+    return df, model, accuracy_score(y_test, model.predict(X_test))
 
-# Log trade
-def log_trade(row, action):
-    st.session_state.trades.append({
-        'Time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'Ticker': row.name,
-        'Action': action,
-        'Price': row['Close'],
-        'Confidence': row['Confidence'],
-        'Reason': f"AI Prediction = {int(row['Prediction'])}, MA_5 = {row['MA_5']:.2f}"
-    })
+def plot_candlestick_chart(df, pred_df=None, trade_log=None):
+    fig = go.Figure(data=[
+        go.Candlestick(
+            x=df.index,
+            open=df['Open'],
+            high=df['High'],
+            low=df['Low'],
+            close=df['Close'],
+            name='Candlesticks'
+        )
+    ])
 
-# UI
-st.title("📈 Stock App - AI Paper Trader")
-st.sidebar.header("Configuration")
+    if trade_log:
+        trade_df = pd.DataFrame(trade_log)
+        for i, row in trade_df.iterrows():
+            color = 'green' if row['Type'] == 'BUY' else 'red'
+            fig.add_trace(go.Scatter(
+                x=[row['Datetime']],
+                y=[row['Price']],
+                mode='markers+text',
+                marker=dict(color=color, size=10),
+                name=row['Type'],
+                text=[f"{row['Type']}\n{row['Shares']} @ ${row['Price']:.2f}"],
+                textposition="top center",
+                hovertext=f"{row['Datetime']}<br>{row['Type']} {row['Shares']} @ ${row['Price']:.2f}<br>Portfolio After: ${row['Portfolio Value After']:.2f}",
+                hoverinfo="text"
+            ))
 
-ticker = st.sidebar.text_input("Symbol", "AAPL")
-mode = st.sidebar.radio("Data Mode", ['Live', 'Replay', 'Static'])
-st.session_state.mode = mode
+    fig.update_layout(
+        title='Candlestick Chart with Trades',
+        xaxis_title='Date',
+        yaxis_title='Price',
+        xaxis_rangeslider_visible=False
+    )
+    return fig
 
-if st.sidebar.button("Load Data"):
-    df = load_data(ticker, mode)
-    df = engineer_features(df)
-    df, model, acc = ai_predict(df)
+def run_paper_trade(signal, price):
+    p = st.session_state.portfolio
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    st.metric("Model Accuracy", f"{acc * 100:.2f}%")
-    st.subheader("📊 Predictions")
-    st.dataframe(df[['Close', 'MA_5', 'MA_10', 'Prediction', 'Confidence']].tail())
+    if signal == 1 and p['cash'] >= price:
+        shares_to_buy = int(p['cash'] // price)
+        total_cost = shares_to_buy * price
+        p['shares'] += shares_to_buy
+        p['cash'] -= total_cost
+        p['last_price'] = price
+        portfolio_value = p['cash'] + p['shares'] * price
+        trade_msg = f"BUY {shares_to_buy} @ ${price:.2f}"
+        p['history'].append(trade_msg)
+        p['trade_log'].append({
+            'Datetime': now,
+            'Type': 'BUY',
+            'Shares': shares_to_buy,
+            'Price': price,
+            'Total Value': total_cost,
+            'Cash After': p['cash'],
+            'Portfolio Value After': portfolio_value,
+            'Signal': 'BUY',
+            'Symbol': st.session_state.get('symbol', 'N/A')
+        })
 
-    last = df.iloc[-1]
-    action = "BUY" if last['Prediction'] == 1 else "SELL"
-    log_trade(last, action)
-    st.success(f"AI suggests to {action} at ${last['Close']:.2f} (Confidence: {last['Confidence']:.2f})")
+    elif signal == 0 and p['shares'] > 0:
+        total_gain = p['shares'] * price
+        profit = total_gain - (p['shares'] * p['last_price'])
+        p['cash'] += total_gain
+        portfolio_value = p['cash']
+        trade_msg = f"SELL {p['shares']} @ ${price:.2f}"
+        p['history'].append(trade_msg)
+        p['realized_pl'] += profit
+        p['trade_log'].append({
+            'Datetime': now,
+            'Type': 'SELL',
+            'Shares': p['shares'],
+            'Price': price,
+            'Total Value': total_gain,
+            'Cash After': p['cash'],
+            'Portfolio Value After': portfolio_value,
+            'Signal': 'SELL',
+            'Symbol': st.session_state.get('symbol', 'N/A')
+        })
+        p['shares'] = 0
+        p['last_price'] = price
 
-    st.subheader("🧾 Trade Log")
-    st.dataframe(pd.DataFrame(st.session_state.trades))
+    p['unrealized_pl'] = p['shares'] * (price - p['last_price'])
+    start_value = 10000.0
+    curr_value = p['cash'] + p['shares'] * price
+    cumulative_return = (curr_value - start_value) / start_value
+    p['returns'].append({'Datetime': now, 'Return': cumulative_return})
+    date_key = now.split(" ")[0]
+    p['daily_summary'][date_key] = p['daily_summary'].get(date_key, 0) + 1
+
+    st.divider()
+    st.subheader("💰 Profit & Loss Report")
+    st.metric("Unrealized P/L", f"${p['unrealized_pl']:.2f}")
+    st.metric("Realized P/L", f"${p['realized_pl']:.2f}")
+
+    st.subheader("🔕️ Daily Trade Summary")
+    summary_df = pd.DataFrame.from_dict(p['daily_summary'], orient='index', columns=["# of Trades"])
+    summary_df.index.name = "Date"
+    summary_df = summary_df.sort_index(ascending=False)
+    st.dataframe(summary_df)
+    st.bar_chart(summary_df)
+
+    st.subheader("📈 Cumulative Return Over Time")
+    return_df = pd.DataFrame(p['returns'])
+    if not return_df.empty:
+        return_df['Datetime'] = pd.to_datetime(return_df['Datetime'])
+        return_df.set_index('Datetime', inplace=True)
+        st.line_chart(return_df['Return'], use_container_width=True)
+
+def main():
+    st.title("📈 Paper Trading AI Dashboard")
+    symbol = st.text_input("🔍 Enter Stock Symbol (e.g. AAPL)", "AAPL")
+
+    if symbol:
+        st.session_state['symbol'] = symbol
+        data = yf.download(symbol, period="3mo", interval="1d")
+        if not data.empty:
+            features_df = engineer_features(data)
+            pred_df, model, accuracy = train_ai_model(features_df)
+
+            latest_price = float(data['Close'].iloc[-1])
+            signal = int(pred_df['Prediction'].iloc[-1])
+
+            st.subheader("🧠 Model Output")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Model Accuracy", f"{accuracy * 100:.2f}%")
+            col2.metric("Latest Price", f"${latest_price:.2f}")
+            col3.metric("AI Signal", "BUY" if signal == 1 else "SELL")
+
+            candle_fig = plot_candlestick_chart(data, pred_df, st.session_state.portfolio['trade_log'])
+            st.subheader("📊 Candlestick Chart")
+            st.plotly_chart(candle_fig, use_container_width=True)
+
+            run_paper_trade(signal, latest_price)
+
+            with st.expander("📄 View Raw Historical Data"):
+                st.dataframe(data.tail())
+        else:
+            st.error("No data found for that symbol.")
+
+if __name__ == "__main__":
+    main()
