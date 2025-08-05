@@ -80,7 +80,7 @@ if st.sidebar.button("Load Data"):
     last = last.copy()  # Ensure it's a Series, not a view of a DataFrame
     action = "BUY" if int(last['Prediction']) == 1 else "SELL"
     log_trade(last, action)
-    st.success(f"AI suggests to {action} at ${last['Close']:.2f} (Confidence: {last['Confidence']:.2f})")
+    st.success(f"AI suggests to {action} at ${float(last['Close']):.2f} (Confidence: {float(last['Confidence']):.2f})"))
 
     st.subheader("🧾 Trade Log")
 trade_df = pd.DataFrame(st.session_state.trades)
