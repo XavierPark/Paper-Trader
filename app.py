@@ -56,7 +56,7 @@ def log_trade(row, action):
         'Action': action,
         'Price': row['Close'],
         'Confidence': row['Confidence'],
-        'Reason': f"AI Prediction = {int(row['Prediction'])}, MA_5 = {row['MA_5']:.2f}"
+        'Reason': f"AI Prediction = {int(row['Prediction'].item() if hasattr(row['Prediction'], 'item') else row['Prediction'])}, MA_5 = {float(row['MA_5']) if hasattr(row['MA_5'], 'item') else row['MA_5']:.2f}"
     })
 
 # UI
