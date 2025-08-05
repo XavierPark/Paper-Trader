@@ -77,9 +77,20 @@ if st.sidebar.button("Load Data"):
     st.dataframe(df[['Close', 'MA_5', 'MA_10', 'Prediction', 'Confidence']].tail())
 
     last = df.iloc[-1]
-    action = "BUY" if last['Prediction'] == 1 else "SELL"
+    action = "BUY" if int(last['Prediction']) == 1 else "SELL"
     log_trade(last, action)
     st.success(f"AI suggests to {action} at ${last['Close']:.2f} (Confidence: {last['Confidence']:.2f})")
 
     st.subheader("🧾 Trade Log")
-    st.dataframe(pd.DataFrame(st.session_state.trades))
+trade_df = pd.DataFrame(st.session_state.trades)
+if not trade_df.empty:
+    trade_df['Action Color'] = trade_df['Action'].apply(lambda x: '🟢 BUY' if x == 'BUY' else '🔴 SELL')
+    styled_df = trade_df.style.hide(axis='columns', subset=['Action Color']).apply(
+        lambda x: ["background-color: #d4fcd4" if v == 'BUY' else "background-color: #fcd4d4" for v in trade_df['Action']],
+        axis=0
+    )
+    st.dataframe(styled_df, use_container_width=True)
+    csv = trade_df.drop(columns=['Action Color']).to_csv(index=False)
+    st.download_button("📥 Download Trade Log as CSV", data=csv, file_name="trade_log.csv", mime="text/csv")
+else:
+    st.info("No trades logged yet.")
