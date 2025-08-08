@@ -1,3 +1,12 @@
-# Paper Trader 📈
+# StockApp (Starter)
+Privacy-first paper trading prototype using Python + Streamlit with `yfinance` (no API key).
 
-A simple Streamlit-based paper trading dashboard for stock data visualization and future AI-based prediction.
+## Quickstart
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+## Notes
+- Uses replay mode over recent intraday candles (1m) so you can step through ticks.
+- Fractional shares supported. No real trading. Educational only.
