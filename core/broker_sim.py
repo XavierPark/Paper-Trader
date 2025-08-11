@@ -25,7 +25,7 @@ class Position:
 class BrokerSim:
     cash: float
     allow_fractional: bool = True
-    db_path: str = "data/sqlite/stockapp.db"
+    db_path: str = "data/stockapp.db"
     positions: Dict[str, Position] = field(default_factory=dict)
     trades: List[TradeExec] = field(default_factory=list)
 
