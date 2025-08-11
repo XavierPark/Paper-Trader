@@ -8,6 +8,9 @@ from core.risk import RiskConfig, RiskEngine
 from core.metrics import load_trades, equity_curve
 from strategies.rsi_mean_reversion import RSIMeanReversion
 
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
 st.set_page_config(page_title="StockApp", layout="wide")
 st.title("📈 StockApp — Paper Trading (Privacy‑First)")
 
