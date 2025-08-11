@@ -1,137 +1,88 @@
+import os, json
 import streamlit as st
-from datetime import datetime, timedelta
 import pandas as pd
-import time
-
-from configparser import ConfigParser
-import yaml
-
-# Core imports
+from datetime import datetime
 from core.data_feed import ReplayFeed
 from core.broker_sim import BrokerSim
-from core.risk import RiskEngine
-from core.logger import Logger
-from core.metrics import Metrics
-from core.controller import Controller
-
-# Strategies
+from core.risk import RiskConfig, RiskEngine
+from core.metrics import load_trades, equity_curve
 from strategies.rsi_mean_reversion import RSIMeanReversion
-from strategies.macd_trend import MACDTrend
 
-# --- Load Config ---
-with open("config/defaults.yaml", "r") as f:
-    config = yaml.safe_load(f)
+st.set_page_config(page_title="StockApp", layout="wide")
+st.title("📈 StockApp — Paper Trading (Privacy‑First)")
 
-# --- Streamlit Page Config ---
-st.set_page_config(page_title="AI Stock Replay Trader", layout="wide")
+# Sidebar config
+with st.sidebar:
+    st.header("Settings")
+    tickers = st.multiselect("Universe", ["AAPL","MSFT","NVDA","SPY","TSLA","AMZN"], default=["AAPL","MSFT","NVDA","SPY"])
+    starting_cash = st.number_input("Starting Cash ($)", 100.0, 1_000_000.0, 1000.0, step=100.0)
+    buy_th = st.slider("RSI Buy Threshold", 10, 40, 30)
+    sell_th = st.slider("RSI Sell Threshold", 60, 90, 70)
+    per_trade_risk = st.slider("Per‑Trade Risk %", 0.1, 5.0, 1.0) / 100.0
+    stop_loss_pct = st.slider("Stop Loss %", 0.5, 10.0, 3.0) / 100.0
+    run = st.button("Next Tick ▶️")
+    reset = st.button("Reset Session 🔄")
 
-st.title("📈 AI Stock Trading Simulator (Replay Mode)")
-st.write("This simulates historical market data candle-by-candle so the AI trades as if live.")
+# Session state
+if "feed" not in st.session_state or reset:
+    st.session_state.feed = ReplayFeed(tickers=tickers, period="5d", interval="1m")
+    st.session_state.feed.load()
+    st.session_state.broker = BrokerSim(cash=starting_cash)
+    st.session_state.strategy = RSIMeanReversion(buy_th=buy_th, sell_th=sell_th)
+    st.session_state.risk = RiskEngine(RiskConfig(per_trade_risk_pct=per_trade_risk, stop_loss_pct=stop_loss_pct))
+    st.session_state.equity = starting_cash
 
-# --- Sidebar Controls ---
-st.sidebar.header("Simulation Settings")
+feed = st.session_state.feed
+broker = st.session_state.broker
+strat = st.session_state.strategy
+risk = st.session_state.risk
 
-tickers = st.sidebar.multiselect(
-    "Select tickers:",
-    config["market"]["universe"],
-    default=config["market"]["universe"]
-)
+# Tick processing
+if run:
+    if feed.has_next():
+        tick_ts, tick_batch = feed.next_tick()
+        for tkr, hist in tick_batch.items():
+            if hist.empty:
+                continue
+            sig = strat.generate(hist)
+            if sig.action in ("buy","sell"):
+                price = float(hist['close'].iloc[-1])
+                # Position sizing (fractional)
+                equity_now = broker.cash + sum(pos.qty*pos.avg_price for pos in broker.positions.values())
+                qty = risk.size_fractional(equity=equity_now, price=price)
+                if qty <= 0:
+                    continue
+                reason_json = json.dumps(sig.reason)
+                broker.execute_market(
+                    ts=tick_ts, ticker=tkr, side=sig.action, qty=qty, price=price,
+                    strategy=strat.name, confidence=sig.confidence, reason_json=reason_json
+                )
+    else:
+        st.info("No more ticks in replay. Reset to start over.")
 
-days_back = st.sidebar.slider("Days of history to replay", 1, 10, 5)
-start_date = datetime.now() - timedelta(days=days_back)
-end_date = datetime.now()
+# UI Layout
+col1, col2 = st.columns([2,1])
 
-refresh_seconds = st.sidebar.slider("Replay speed (seconds per candle)", 1, 10, config["ui"]["refresh_seconds"])
+with col1:
+    st.subheader("Equity & Trades")
+    trades = load_trades(broker.db_path)
+    if not trades.empty:
+        ec = equity_curve(starting_cash, trades)
+        st.line_chart(ec.set_index("ts"))
+    st.dataframe(trades.tail(20))
 
-st.sidebar.markdown("---")
-st.sidebar.write("**Strategies Enabled:**")
-use_rsi = st.sidebar.checkbox("RSI Mean Reversion", value=True)
-use_macd = st.sidebar.checkbox("MACD Trend", value=True)
+with col2:
+    st.subheader("Positions / Cash")
+    pos_rows = [{"ticker": t, "qty": p.qty, "avg_price": p.avg_price} for t, p in broker.positions.items()]
+    pos_df = pd.DataFrame(pos_rows) if pos_rows else pd.DataFrame(columns=["ticker","qty","avg_price"])
+    st.dataframe(pos_df)
+    st.metric(label="Cash", value=f"$ {broker.cash:,.2f}")
 
-# --- Initialize Systems ---
-feed = ReplayFeed(tickers, start_date, end_date, interval=config["market"]["resolution"])
-feed.load_data()
+st.markdown("---")
+st.subheader("Live Trade Reasons (last 10)")
+trades = load_trades(broker.db_path)
+if not trades.empty:
+    last = trades.tail(10).copy()
+    st.dataframe(last[["ts","ticker","side","qty","price","strategy","confidence","reason_json"]])
 
-broker = BrokerSim(starting_cash=config["portfolio"]["starting_cash"], allow_fractional=config["portfolio"]["allow_fractional"])
-risk_engine = RiskEngine(config)
-metrics = Metrics()
-logger = Logger(config["logging"]["db_path"], export_csv=config["logging"]["export_csv"], export_parquet=config["logging"]["export_parquet"])
-
-strategies = []
-if use_rsi:
-    for t in tickers:
-        strategies.append(RSIMeanReversion(ticker=t))
-if use_macd:
-    for t in tickers:
-        strategies.append(MACDTrend(ticker=t))
-
-controller = Controller(strategies, broker, risk_engine, metrics, logger, config)
-
-# --- UI Placeholders ---
-equity_chart = st.empty()
-verdict_table_placeholder = st.empty()
-trade_log_placeholder = st.empty()
-
-trade_log_df = pd.DataFrame(columns=["Time", "Ticker", "Side", "Qty", "Price", "Strategy", "Confidence", "Reason"])
-
-# --- Run Simulation ---
-st.write(f"▶ Running Replay from {start_date.date()} to {end_date.date()} ...")
-
-while True:
-    next_candle = feed.get_next_candle()
-    if not next_candle:
-        break
-
-    timestamp, candles = next_candle
-    controller.process_candles(timestamp, candles)
-
-    # Update verdict table in real-time
-    verdicts = metrics.get_realtime_verdicts()
-    verdict_df = pd.DataFrame([
-        {
-            "Ticker": t,
-            "Verdict": v["verdict"],
-            "Win Rate %": v["win_rate"],
-            "Avg Conf": v["avg_conf"],
-            "Trend": v["trend"],
-            "Notes": v["notes"]
-        }
-        for t, v in verdicts.items()
-    ])
-    verdict_table_placeholder.dataframe(verdict_df)
-
-    # Update equity curve
-    eq_df = pd.DataFrame(metrics.equity_curve)
-    equity_chart.line_chart(eq_df.set_index("ts"))
-
-    # Update trade log
-    if broker.trade_history:
-        last_trade = broker.trade_history[-1]
-        trade_log_df.loc[len(trade_log_df)] = [
-            timestamp, last_trade["ticker"], last_trade["side"],
-            last_trade["qty"], last_trade["price"],
-            "N/A",  # Strategy placeholder
-            0.0,    # Confidence placeholder
-            "Reason N/A"
-        ]
-        trade_log_placeholder.dataframe(trade_log_df)
-
-    time.sleep(refresh_seconds)
-
-# --- Final Summary ---
-st.header("📊 Final Per-Stock Verdicts")
-final_summary = metrics.get_final_summary()
-final_df = pd.DataFrame([
-    {
-        "Ticker": t,
-        "Verdict": v["verdict"],
-        "Win Rate %": v["win_rate"],
-        "Avg Conf": v["avg_conf"],
-        "Trend": v["trend"],
-        "Notes": v["notes"]
-    }
-    for t, v in final_summary.items()
-])
-st.dataframe(final_df)
-
-st.download_button("Download Trade Log (CSV)", trade_log_df.to_csv(index=False), "trade_log.csv")
+st.caption("Educational prototype. Not investment advice.")
