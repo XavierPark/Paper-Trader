@@ -1,36 +1,37 @@
-from pydantic import BaseModel
-from typing import List, Literal, Optional
+from __future__ import annotations
+from pydantic import BaseModel, Field
+from typing import Literal, Optional, List, Dict
 from datetime import datetime
 
-
 class TradeReason(BaseModel):
-    triggers: List[str]  # e.g., ["RSI<30", "50SMA cross"]
-    indicators: dict     # e.g., {"rsi": 28.4, "sma50": 182.1}
-    sentiment: Optional[float] = None  # -1..1
-    regime: Optional[str] = None  # trending|range|volatile
+    triggers: List[str] = Field(default_factory=list)
+    indicators: Dict[str, float] = Field(default_factory=dict)
+    sentiment: Optional[float] = None
+    regime: Optional[str] = None
     notes: Optional[str] = None
-
 
 class Trade(BaseModel):
     ts: datetime
     ticker: str
-    side: Literal["buy", "sell"]
+    side: Literal["buy","sell"]
     qty: float
     price: float
     strategy: str
     confidence: float
     reason: TradeReason
-    data_mode: Literal["live", "replay", "static"]
-    pnl_realized: Optional[float] = None
+    data_mode: Literal["live","replay","static"] = "replay"
 
+class Position(BaseModel):
+    ticker: str
+    qty: float = 0.0
+    avg_price: float = 0.0
 
 class Order(BaseModel):
     ts: datetime
     ticker: str
-    side: Literal["buy", "sell"]
+    side: Literal["buy","sell"]
     qty: float
-    limit_price: Optional[float]
-    status: Literal["open", "filled", "cancelled"]
+    limit_price: float
     strategy: str
     confidence: float
     reason: TradeReason
